@@ -26,6 +26,7 @@ let param = 'child-mortality';
 let lineParam = 'gdp';
 let highlighted = '';
 let selected;
+let chosenCountry = 0;
 
 const x = d3.scaleLinear().range([margin*2, width-margin]);
 const y = d3.scaleLinear().range([height-margin, margin]);
@@ -75,29 +76,158 @@ loadData().then(data => {
         param = d3.select(this).property('value');
         updateBar();
     });
+	
+	d3.select('#p').on('change', function(){ 
+		lineParam = d3.select(this).property('value');						  
+		updateLineChart();
+    });
 
     function updateBar(){
+        d3.select('.year').text(year);
+
+        contries_keys = d3.map(data, function (d) {
+            return d['region'];
+        }).keys();
+
+        mean_value = [];
+        max_value = 0
+        for (let country of contries_keys){
+            countryDat =  data.filter(function(d){return d.region==country})
+            let countryRange = countryDat.map(d => +d[param][year]);
+
+            mean = 0;
+            count = 0;
+             for (let value of countryRange) {
+                  mean+=value; 
+                  count+=1;
+                }
+            mean = mean/count;
+            mean_value.push({"region":country, "mean":mean});
+            if (mean>max_value) {
+                max_value = mean;
+            }
+        }
+
+        xBar.domain(contries_keys);
+        xBarAxis.call(d3.axisBottom(xBar));
+
+        yBar.domain([0, max_value]).range([500, 0]);
+        yBarAxis.call(d3.axisLeft(yBar));
+
+        barChart.selectAll('rect').data(mean_value).enter().append('rect');
+        barChart.selectAll('rect').data(mean_value)
+            .attr('width', xBar.bandwidth())
+            .attr('height', d => 500 - yBar(d['mean']))
+            .attr('x', d => xBar(d['region']))
+            .attr('y', d => yBar(d['mean']) - 30)
+            .attr("fill", d => colorScale(d['region']));
+
+        d3.selectAll('rect').on('click', function (actual, i) {
+            d3.selectAll('rect').attr('opacity', 0.2);
+            d3.select(this).attr('opacity', 1);
+            chosenCountry = actual.region;									
+            updateScattePlot();
+        });
+
+         d3.selectAll('rect').on('click', function (actual, i) {
+            updateScattePlot();
+            if (highlighted != this) {
+                d3.selectAll('rect').attr('opacity', 0.2);
+                d3.select(this).attr('opacity', 1);
+                console.log(actual.region);
+                console.log(scatterPlot.selectAll('circle'));
+                scatterPlot.selectAll('circle').filter(d => d['region'] != actual.region).attr('r', 0);
+                highlighted = this;
+            }else{
+                d3.selectAll('rect').attr('r', 1);
+                d3.selectAll('rect').attr('opacity', 1);
+                updateScattePlot();
+                highlighted = null;
+            }					 
+        });
         return;
     }
+	
+	updateBar();
+    function updateScattePlot() {
+        
+        d3.select('.year').text(year);
 
-    function updateScattePlot(){
+        let xRange = data.map(d => +d[xParam][year]);
+        x.domain([d3.min(xRange), d3.max(xRange)]);
+        xAxis.call(d3.axisBottom(x));
+
+        let yRange = data.map(d => +d[yParam][year]);
+        y.domain([d3.min(yRange), d3.max(yRange)]);
+        yAxis.call(d3.axisLeft(y));
+
+        let rRange = data.map(d => +d[rParam][year]);
+        radiusScale.domain([d3.min(rRange), d3.max(rRange)]);
+        scatterPlot.selectAll('circle').data(data)
+            .enter()
+            .append('circle');
+        scatterPlot.selectAll('circle').data(data)
+            .attr("cx", d => x(d[xParam][year]))
+            .attr("cy", d => y(d[yParam][year]))
+            .attr("r", d => radiusScale(d[rParam][year]))
+            .attr("fill", d => colorScale(d['region']))
+            .attr('opacity', 0.8);
+        scatterPlot.selectAll('circle').on('click', function (actual, i) {
+            selected = actual['country'];
+            d3.selectAll('circle').attr('stroke-width', 'default');
+            this.parentNode.appendChild(this);
+            d3.select(this).attr('stroke-width', 5);
+            updateLineChart();
+        });
         return;
     }
+   updateScattePlot();
 
-    updateBar();
-    updateScattePlot();
+    function updateLineChart() {
+        if (selected) {
+            d3.select('.country-name').text(selected);
+            let lineDat = data.filter(d => d['country'] == selected).map(d => d[lineParam])[0];							  
+            let lineDatVis = [];
+
+            for (let line_detail of  Object.entries(lineDat)){									  
+                let obj = {"year": line_detail[0], "value": line_detail[1]};
+                lineDatVis.push(obj);
+            }
+
+            lineDatVis.splice(221, 5);
+
+            let xRange = d3.range(1800, 2021);
+            x.domain([d3.min(xRange), d3.max(xRange)]);
+            xLineAxis.call(d3.axisBottom(x));
+
+            let yRange = d3.values(lineDat).map(d => +d);
+            y.domain([d3.min(yRange), d3.max(yRange)]);
+            yLineAxis.call(d3.axisLeft(y));
+
+            lineChart.append('path').attr('class', 'line').datum(lineDatVis).enter().append('path');
+            lineChart.selectAll('.line').datum(lineDatVis)
+                .attr("fill", "none")
+                .attr("stroke", "steelblue")
+                .attr("stroke-width", 1.7)
+                .attr("d", d3.line()
+                    .x(d => x(+d.year))
+                    .y(d => y(+d.value))
+                );
+            return;
+        }
+    }
+    updateLineChart();
 });
 
-
 async function loadData() {
-    const data = { 
-        'population': await d3.csv('data/population.csv'),
+    const data = { 											  														  
         'gdp': await d3.csv('data/gdp.csv'),
         'child-mortality': await d3.csv('data/cmu5.csv'),
+		'fertility-rate': await d3.csv('data/fertility-rate.csv'),
         'life-expectancy': await d3.csv('data/life_expectancy.csv'),
-        'fertility-rate': await d3.csv('data/fertility-rate.csv')
+		'population': await d3.csv('data/population.csv')
     };
-    
+	
     return data.population.map(d=>{
         const index = data.gdp.findIndex(item => item.geo == d.geo);
         return  {
@@ -107,8 +237,8 @@ async function loadData() {
             population: d,
             'gdp': data['gdp'][index],
             'child-mortality': data['child-mortality'][index],
-            'life-expectancy': data['life-expectancy'][index],
-            'fertility-rate': data['fertility-rate'][index]
+			'fertility-rate': data['fertility-rate'][index],
+            'life-expectancy': data['life-expectancy'][index]
         }
     })
 }
